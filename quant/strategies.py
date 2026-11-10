@@ -95,12 +95,14 @@ def trend_filter(index: pd.Series, ma: int = 120, buffer: float = 0.0) -> pd.Ser
 
 # --------------------------------------------------------------------------- stock strategies
 def factor_portfolio(panel, fac: Factors, weights: dict, start, n_hold=50, every=20, boards=MAIN,
-                     top_cap=None, risk_on: pd.Series | None = None, buffer: float = 1.0, **uni_kw) -> dict:
+                     top_cap=None, risk_on: pd.Series | None = None, buffer: float = 1.0, score_fn=None, **uni_kw) -> dict:
     """Hold the `n_hold` best stocks by a weighted average of factor percentile ranks,
     equal-weighted, refreshed every `every` trading days.
 
     risk_on: optional boolean Series; when False the portfolio is moved to cash at the next
     open, and re-entered when it flips back.
+    score_fn: optional callable t -> score array (NaN = not scored); replaces the factor ranks,
+    e.g. with the output of a fitted model.
     buffer: turnover control. A stock already held is kept as long as it still ranks inside
     the top `buffer * n_hold`; only the vacated slots are refilled from the top of the list.
     """
@@ -122,13 +124,21 @@ def factor_portfolio(panel, fac: Factors, weights: dict, start, n_hold=50, every
             continue
         prev_on = is_on
         m = fac.universe(t, boards=boards, top_cap=top_cap, **uni_kw)
+        if score_fn is not None:
+            sc = score_fn(t)
+            if sc is None:
+                continue
+            m = m & np.isfinite(sc)
         if m.sum() < n_hold:
             continue
-        score = np.zeros(len(m)); wsum = 0.0
-        for k, w in weights.items():
-            score += w * np.nan_to_num(_rank(getattr(fac, k)[t], m), nan=0.5)
-            wsum += w
-        score = np.where(m, score / wsum, -np.inf)
+        if score_fn is not None:
+            score = np.where(m, sc, -np.inf)
+        else:
+            score = np.zeros(len(m)); wsum = 0.0
+            for k, w in weights.items():
+                score += w * np.nan_to_num(_rank(getattr(fac, k)[t], m), nan=0.5)
+                wsum += w
+            score = np.where(m, score / wsum, -np.inf)
         order = np.argsort(-score)
         if buffer > 1 and held.size:
             keep = held[np.isin(held, order[:int(buffer * n_hold)])]
@@ -174,3 +184,26 @@ def index_rotation(panel, codes=("000300", "000905"), lookback=20, check_every=5
         if row.max() > 0:
             w.iloc[i, int(np.argmax(row.to_numpy()))] = 1.0
     return w.ffill().fillna(0.0)
+
+
+def apply_exposure(targets: dict, exposure: np.ndarray, step: float = 0.10) -> dict:
+    """Scale a strategy's targets by a daily exposure series (0..1), known at each close.
+    Re-issues the current holdings whenever the exposure has moved by more than `step`."""
+    out, cur, last = {}, None, None
+    t_first, t_last = min(targets), len(exposure) - 1
+    for t in range(t_first, t_last):
+        e = float(np.clip(np.nan_to_num(exposure[t], nan=1.0), 0, 1))
+        if t in targets:
+            cur = targets[t]; last = e
+            out[t] = (cur[0], cur[1] * e)
+        elif cur is not None and abs(e - last) > step:
+            last = e
+            out[t] = (cur[0], cur[1] * e)
+    return out
+
+
+def vol_exposure(index: pd.Series, target: float = 0.20, looks=(20, 60)) -> np.ndarray:
+    """min(1, target / recent volatility of `index`), using the larger of the look-back estimates."""
+    r = index.pct_change()
+    v = pd.concat([r.rolling(k).std() for k in looks], axis=1).max(axis=1) * np.sqrt(244)
+    return (target / v).clip(upper=1.0).to_numpy()

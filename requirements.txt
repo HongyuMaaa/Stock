@@ -3,4 +3,6 @@ pandas
 pyarrow
 requests
 akshare
+lightgbm
+scikit-learn
 matplotlib
