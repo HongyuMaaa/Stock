@@ -57,6 +57,7 @@ class Result:
     cost: pd.Series            # costs paid / equity, per day
     stats: dict = field(default_factory=dict)
     holdings: dict = field(default_factory=dict)   # date -> {code: weight} at rebalance
+    weights: pd.DataFrame | None = None            # end-of-day weights (record_weights=True)
 
     @property
     def returns(self) -> pd.Series:
@@ -65,8 +66,11 @@ class Result:
 
 def simulate(name, dates, adj_open, adj_close_ff, traded, cant_buy, cant_sell, targets,
              start, end=None, costs: Costs | None = None, band: float = 0.0,
-             delist_haircut: float = 0.0, last_bar=None, codes=None) -> Result:
-    """targets: dict {signal_day_index: (idx_array, weight_array)}; executed next open."""
+             delist_haircut: float = 0.0, last_bar=None, codes=None, stamp_mask=None,
+             record_weights: bool = False) -> Result:
+    """targets: dict {signal_day_index: (idx_array, weight_array)}; executed next open.
+    stamp_mask: optional bool array, True for securities that pay stamp duty (stocks, not ETFs).
+    record_weights: also return the end-of-day weight of every security (small universes only)."""
     costs = costs or Costs()
     T, N = adj_close_ff.shape
     t0 = int(dates.searchsorted(pd.Timestamp(start)))
@@ -85,6 +89,8 @@ def simulate(name, dates, adj_open, adj_close_ff, traded, cant_buy, cant_sell, t
     tv = np.zeros_like(eq); npos = np.zeros_like(eq); expo = np.zeros_like(eq); cst = np.zeros_like(eq)
     n_blocked_buy = n_blocked_sell = n_delist = 0
     dvals = dates.values
+    nostamp = costs.commission + costs.slippage
+    wrec = np.zeros((t1 - t0 + 1, N)) if record_weights else None
 
     for k, t in enumerate(range(t0, t1 + 1)):
         held = np.flatnonzero(h > 0)
@@ -96,6 +102,10 @@ def simulate(name, dates, adj_open, adj_close_ff, traded, cant_buy, cant_sell, t
                 cash += h[j] * ref[j] * (1 - delist_haircut)
                 h[j] = 0.0; pending_exit[j] = False; n_delist += 1
         bc, sc = costs.rates(dvals[t])
+        if stamp_mask is not None:
+            bc = np.where(stamp_mask, bc, nostamp); sc = np.where(stamp_mask, sc, nostamp)
+        else:
+            bc = np.full(N, bc); sc = np.full(N, sc)
         traded_val = paid = 0.0
         sig = targets.get(t - 1)
         if sig is not None or pending_exit.any():
@@ -120,8 +130,8 @@ def simulate(name, dates, adj_open, adj_close_ff, traded, cant_buy, cant_sell, t
                 amt = -delta[js]
                 h[js] -= amt / po[js]
                 h[js] = np.where(h[js] * po[js] < 1e-10, 0.0, h[js])
-                cash += amt.sum() * (1 - sc)
-                traded_val += amt.sum(); paid += amt.sum() * sc
+                cash += (amt * (1 - sc[js])).sum()
+                traded_val += amt.sum(); paid += (amt * sc[js]).sum()
             # buys
             want_buy = delta > 1e-12
             can = want_buy & ~cant_buy[t]
@@ -129,22 +139,26 @@ def simulate(name, dates, adj_open, adj_close_ff, traded, cant_buy, cant_sell, t
             jb = np.flatnonzero(can)
             if jb.size and cash > 0:
                 amt = delta[jb]
-                scale = min(1.0, cash / (amt.sum() * (1 + bc)))
+                scale = min(1.0, cash / (amt * (1 + bc[jb])).sum())
                 amt = amt * scale
                 h[jb] += amt / po[jb]
-                cash -= amt.sum() * (1 + bc)
-                traded_val += amt.sum(); paid += amt.sum() * bc
+                cash -= (amt * (1 + bc[jb])).sum()
+                traded_val += amt.sum(); paid += (amt * bc[jb]).sum()
             pending_exit = (h > 0) & (w_tgt == 0)
         pos_val = h * np.nan_to_num(adj_close_ff[t])
         e = cash + pos_val.sum()
         eq[k] = e
         tv[k] = traded_val / 2 / e; cst[k] = paid / e
         npos[k] = (h > 0).sum(); expo[k] = pos_val.sum() / e
+        if record_weights:
+            wrec[k] = pos_val / e
 
     idx = dates[t0:t1 + 1]
     res = Result(name, pd.Series(eq, idx), pd.Series(tv, idx), pd.Series(npos, idx),
                  pd.Series(expo, idx), pd.Series(cst, idx))
     res.stats = dict(blocked_buys=n_blocked_buy, blocked_sells=n_blocked_sell, delisted_while_held=n_delist)
+    if record_weights:
+        res.weights = pd.DataFrame(wrec, idx, columns=codes)
     if codes is not None:
         res.holdings = {dates[t]: dict(zip(codes[i], np.round(w, 5))) for t, (i, w) in targets.items()
                         if t0 - 1 <= t <= t1}

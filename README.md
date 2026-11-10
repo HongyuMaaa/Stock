@@ -74,3 +74,16 @@ from the panel at the close of day *t* fits.
 
 Research code and historical simulation, not investment advice. Backtested returns are not a forecast;
 see the limitations section of the report before putting money behind any of this.
+
+## Fixed five-security basket
+
+A second study optimises a strategy for one fixed basket (510300, 159915, 600066, 600406, 000895):
+see [`reports/basket/REPORT.md`](reports/basket/REPORT.md).
+
+```bash
+python scripts/optimize_basket.py      # every iteration + robustness -> reports/basket/
+python scripts/basket_signal.py        # target weights for the next open
+```
+
+`quant/basket.py` holds the basket loader (ETF download included) and the strategy blocks: slow trend
+ensemble, volatility target, dip overlay.
