@@ -20,8 +20,8 @@ Backtest 2006-01-04 → 2026-11-10, signals at the close, trades at the next ope
 | Winning months | 60% | **63%** |
 | Winning round-trip trades | – | 56%, winners 4.6× the losers in total |
 | Worst calendar year | −54.5% (2008) | −21.6% (2008) |
-| Bear phases, annualised | −25.6% | −12.4% |
-| Bull phases, annualised | +54.9% | +41.1% |
+| Bear phases, annualised | −25.7% | −12.4% |
+| Bull phases, annualised | +54.8% | +41.0% |
 
 The optimisation halved the drawdown and the bear-market loss while keeping the full buy-and-hold
 return. It did not raise the return: these five securities already returned far more than the market
