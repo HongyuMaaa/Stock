@@ -12,7 +12,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quant import strategies as S
 from quant.backtest import Costs, run_stock_strategy
-from quant.catalog import MF, STOCK_STRATEGIES, INDEX_STRATEGIES, risk_on_signal, run_all
+from quant.catalog import BUFFER, MF, STOCK_STRATEGIES, INDEX_STRATEGIES, risk_on_signal, run_all
 from quant.metrics import TD, drawdown, find_regimes, perf_stats, regime_summary, regime_table
 from quant.panel import load_panel
 
@@ -213,7 +213,7 @@ def main():
     rob = {}
     if not a.skip_robustness:
         on = risk_on_signal(p, fac)
-        base = lambda **kw: S.factor_portfolio(p, fac, MF, a.start, **{**dict(n_hold=50, every=20), **kw})
+        base = lambda **kw: S.factor_portfolio(p, fac, MF, a.start, **{**dict(n_hold=50, every=20, buffer=BUFFER), **kw})
 
         def run(label, targets, costs=None, start=a.start, group=""):
             r = run_stock_strategy(p, label, targets, start, costs=costs)
@@ -221,17 +221,19 @@ def main():
             rob[(group, label)] = {"CAGR": st["CAGR"], "Sharpe": st["Sharpe"], "MaxDD": st["MaxDD"],
                                    "Turnover/yr": r.turnover.mean() * TD}
         tb = base()
-        run("base: 50 names, 20d, 10bp slippage", tb, group="baseline")
+        run("base: 50 names, 20d, 10bp slippage, 2N buffer", tb, group="baseline")
         for sl in (0.0, 0.003, 0.005):
             run(f"slippage {sl * 1e4:.0f}bp per side", tb, Costs(slippage=sl), group="costs")
         run("today's stamp duty applied to all history", tb, Costs(historical_stamp=False), group="costs")
+        run("no holding buffer (full re-selection each month)", base(buffer=1.0), group="turnover control")
+        run("wider buffer (keep while in top 3N)", base(buffer=3.0), group="turnover control")
         for n in (10, 20, 100, 200):
             run(f"{n} names", base(n_hold=n), group="breadth")
         for ev in (5, 10, 40, 60):
             run(f"rebalance every {ev}d", base(every=ev), group="frequency")
         for k in MF:
             w = {kk: v for kk, v in MF.items() if kk != k}
-            run(f"drop factor '{k}'", S.factor_portfolio(p, fac, w, a.start, n_hold=50, every=20), group="factor mix")
+            run(f"drop factor '{k}'", S.factor_portfolio(p, fac, w, a.start, n_hold=50, every=20, buffer=BUFFER), group="factor mix")
         run("main + ChiNext + STAR", base(boards=S.ALL_BOARDS), group="universe")
         run("exclude smallest 30% by liquidity", base(liq_floor_pct=0.30), group="universe")
         run("only the 1,500 largest stocks", base(top_cap=1500), group="universe")
@@ -281,7 +283,7 @@ def main():
           "### Market phases (20% rule on the cap-weighted market index) and strategy return in each", "",
           md_table(rt, default=lambda v: pct(v, 0)), "",
           "### Annualised return over all bull days / all bear days", "", md_table(rs.rename_axis("Strategy"), default=P1), "",
-          "### Calendar-year returns", "", md_table(yearly.rename_axis("Year"), default=lambda v: pct(v, 0)), "",
+          "### Calendar-year returns", "", md_table(yearly.rename_axis("Year").rename(index=str), default=lambda v: pct(v, 0)), "",
           "### Factor rank IC (20-day horizon, main-board universe)", "", md_table(ic_tab.rename_axis("Factor"), {"IC IR (annualised)": F2, "IC>0 share": lambda v: pct(v, 0)}, default=lambda v: f"{v:.3f}"), ""]
     if rob:
         md += ["### Robustness of SmallCap-MF", "", md_table(robdf.reset_index(), {"CAGR": P1, "Sharpe": F2, "MaxDD": P1, "Turnover/yr": fm["Turnover/yr"]}, index=False), ""]

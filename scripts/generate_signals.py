@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np, pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quant import strategies as S
-from quant.catalog import MF, DEF, risk_on_signal
+from quant.catalog import BUFFER, MF, DEF, risk_on_signal
 from quant.panel import load_panel
 
 if __name__ == "__main__":
@@ -18,6 +18,8 @@ if __name__ == "__main__":
                     choices=["SmallCap-MF", "SmallCap-MF+Trend", "LargeCap-Defensive"])
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--capital", type=float, default=0, help="CNY; if given, prints 100-share lots")
+    ap.add_argument("--holdings", nargs="*", default=[],
+                    help="codes you hold now; they are kept while still ranked in the top 2N (turnover buffer)")
     ap.add_argument("--data-dir", default="data")
     a = ap.parse_args()
 
@@ -33,7 +35,13 @@ if __name__ == "__main__":
     w = DEF if a.strategy == "LargeCap-Defensive" else MF
     m = fac.universe(t, top_cap=800 if a.strategy == "LargeCap-Defensive" else None)
     score = sum(v * np.nan_to_num(S._rank(getattr(fac, k)[t], m), nan=0.5) for k, v in w.items()) / sum(w.values())
-    pick = np.argsort(-np.where(m, score, -np.inf))[:a.n]
+    order = np.argsort(-np.where(m, score, -np.inf))
+    held = np.flatnonzero(np.isin(p.codes, a.holdings))
+    keep = held[np.isin(held, order[:int(BUFFER * a.n)])]
+    pick = np.concatenate([keep, order[~np.isin(order, keep)][:a.n - keep.size]]).astype(int)
+    if a.holdings:
+        print(f"keep {keep.size}, sell {sorted(set(a.holdings) - set(p.codes[keep]))}, "
+              f"buy {sorted(set(p.codes[pick]) - set(a.holdings))}")
     df = pd.DataFrame({"code": p.codes[pick], "name": names.reindex(p.codes[pick]).values,
                        "close": p.close[t, pick], "float_cap_bn": p.float_cap[t, pick] / 1e9,
                        "score": score[pick], "weight": 1 / a.n})

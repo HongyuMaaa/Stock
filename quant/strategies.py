@@ -95,18 +95,21 @@ def trend_filter(index: pd.Series, ma: int = 120, buffer: float = 0.0) -> pd.Ser
 
 # --------------------------------------------------------------------------- stock strategies
 def factor_portfolio(panel, fac: Factors, weights: dict, start, n_hold=50, every=20, boards=MAIN,
-                     top_cap=None, risk_on: pd.Series | None = None, **uni_kw) -> dict:
+                     top_cap=None, risk_on: pd.Series | None = None, buffer: float = 1.0, **uni_kw) -> dict:
     """Hold the `n_hold` best stocks by a weighted average of factor percentile ranks,
     equal-weighted, refreshed every `every` trading days.
 
     risk_on: optional boolean Series; when False the portfolio is moved to cash at the next
     open, and re-entered when it flips back.
+    buffer: turnover control. A stock already held is kept as long as it still ranks inside
+    the top `buffer * n_hold`; only the vacated slots are refilled from the top of the list.
     """
     targets = {}
     rb = set(rebalance_days(panel, start, every).tolist())
     on = None if risk_on is None else risk_on.reindex(panel.dates).fillna(False).to_numpy()
     t_first = min(rb)
     prev_on = True
+    held = np.array([], dtype=int)
     for t in range(t_first, len(panel.dates) - 1):
         is_on = True if on is None else bool(on[t])
         if not (t in rb or is_on != prev_on):
@@ -114,6 +117,7 @@ def factor_portfolio(panel, fac: Factors, weights: dict, start, n_hold=50, every
         if not is_on:
             if prev_on or t == t_first:
                 targets[t] = (np.array([], dtype=int), np.array([]))
+                held = np.array([], dtype=int)
             prev_on = is_on
             continue
         prev_on = is_on
@@ -125,7 +129,14 @@ def factor_portfolio(panel, fac: Factors, weights: dict, start, n_hold=50, every
             score += w * np.nan_to_num(_rank(getattr(fac, k)[t], m), nan=0.5)
             wsum += w
         score = np.where(m, score / wsum, -np.inf)
-        pick = np.argsort(-score)[:n_hold]
+        order = np.argsort(-score)
+        if buffer > 1 and held.size:
+            keep = held[np.isin(held, order[:int(buffer * n_hold)])]
+            fresh = order[~np.isin(order, keep)][:n_hold - keep.size]
+            pick = np.concatenate([keep, fresh])
+        else:
+            pick = order[:n_hold]
+        held = pick
         targets[t] = (pick, np.full(n_hold, 1.0 / n_hold))
     return targets
 

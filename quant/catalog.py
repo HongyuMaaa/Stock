@@ -7,15 +7,16 @@ from .backtest import Costs, run_index_strategy, run_stock_strategy
 MF = dict(size=1, rev20=1, lowvol=1, lowturn=1)      # small-cap multi-factor
 DEF = dict(rev20=1, lowvol=1, lowturn=1)             # defensive factors, no size tilt
 TREND_MA, TREND_BUF = 120, 0.02
+BUFFER = 2.0                                          # keep a holding while it ranks in the top 2N
 
 STOCK_STRATEGIES = {
     # name: (description, target-builder(panel, fac, start, risk_on))
     "SmallCap-MF": ("50 main-board stocks ranked on small size + 1m reversal + low volatility + low turnover; monthly",
-                    lambda p, f, s, on: S.factor_portfolio(p, f, MF, s, n_hold=50, every=20)),
+                    lambda p, f, s, on: S.factor_portfolio(p, f, MF, s, n_hold=50, every=20, buffer=BUFFER)),
     "SmallCap-MF+Trend": ("SmallCap-MF, but in cash while the equal-weight market index is below its 120-day MA",
-                          lambda p, f, s, on: S.factor_portfolio(p, f, MF, s, n_hold=50, every=20, risk_on=on)),
+                          lambda p, f, s, on: S.factor_portfolio(p, f, MF, s, n_hold=50, every=20, buffer=BUFFER, risk_on=on)),
     "LargeCap-Defensive": ("50 stocks from the 800 largest, ranked on low volatility + low turnover + 1m reversal; monthly",
-                           lambda p, f, s, on: S.factor_portfolio(p, f, DEF, s, n_hold=50, every=20, top_cap=800)),
+                           lambda p, f, s, on: S.factor_portfolio(p, f, DEF, s, n_hold=50, every=20, buffer=BUFFER, top_cap=800)),
     "Momentum-12-1": ("50 stocks from the 800 largest with the best 12-month return (skipping the last month); monthly",
                       lambda p, f, s, on: S.factor_portfolio(p, f, dict(mom=1), s, n_hold=50, every=20, top_cap=800)),
     "MicroCap-50": ("the 50 smallest eligible main-board stocks, nothing else; monthly",
