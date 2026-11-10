@@ -123,7 +123,7 @@ What the phases show:
 - **Stock selection adds return mainly in bull and sideways markets.** In the big crashes (2001–05, 2008,
   2018) `SmallCap-MF` fell about as much as the market.
 - **The trend filter works when declines are slow and fails when they are fast.** It cut the 2001–05
-  and 2008 losses to a quarter, but lost 44% in the 2015 crash: the market broke the average only after
+  and 2008 losses to roughly a third, but lost 44% in the 2015 crash: the market broke the average only after
   a steep fall, and many holdings were locked limit-down or suspended and could not be sold. It then sat
   out or was whipsawed through most of 2016–2021. Its current drawdown, which began in June 2015, has
   not been recovered.
