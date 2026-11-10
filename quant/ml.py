@@ -238,3 +238,52 @@ def decile_returns(ds: Dataset, scores: np.ndarray, n=10) -> pd.Series:
             q = pd.qcut(pd.Series(scores[i, ok]).rank(method="first"), n, labels=False)
             r = pd.Series(ds.fwd[i, ok]); acc.append((r - r.mean()).groupby(q).mean())
     return pd.DataFrame(acc).mean()
+
+
+def fit_latest(p: Panel, ds: Dataset, horizon=H, log=print):
+    """Fit on everything whose label is already known and score the most recent cross-section
+    (same procedure as one walk-forward step). Returns scores[n_cols] for ds.rows[-1]."""
+    import lightgbm as lgb
+    last = ds.rows[-1]
+    train = ds.rows + horizon < last
+    val = train & (ds.rows > ds.rows[train][-1] - VAL_YEARS * 244)
+    inner = train & (ds.rows + horizon < ds.rows[val][0])
+    thin = np.arange(len(ds.rows)) % 2 == 0
+    Xi, yi, _ = _flat(ds, inner & thin); Xv, yv, gv = _flat(ds, val)
+    best, vic, rounds = None, -9, 0
+    for g in GRID:
+        b = lgb.train({**BASE, **g}, lgb.Dataset(Xi, yi), MAX_ROUNDS, valid_sets=[lgb.Dataset(Xv, yv)],
+                      callbacks=[lgb.early_stopping(40, verbose=False)])
+        ic = _mean_ic(b.predict(Xv, num_iteration=b.best_iteration), yv, gv)
+        if ic > vic:
+            best, vic, rounds = g, ic, b.best_iteration
+    Xa, ya, _ = _flat(ds, train & thin)
+    b = lgb.train({**BASE, **best}, lgb.Dataset(Xa, ya), max(int(rounds * 1.1), 20))
+    log(f"trained on {len(ya):,} rows to {p.dates[ds.rows[train][-1]].date()}; validation IC {vic:.3f}; {best}")
+    out = np.full(len(ds.cols), np.nan)
+    out[ds.uni[-1]] = b.predict(ds.X[-1][ds.uni[-1]])
+    return out
+
+
+def st_mask_from_name_changes(p: Panel, csv_path, current_names: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Point-in-time ST / delisting-risk flag from an exchange's dated name-change history.
+    Returns (st[T, N] bool, covered[N] bool). Only codes of that exchange are covered."""
+    ch = pd.read_csv(csv_path, dtype=str)
+    ch.columns = ["date", "code", "name_now", "before", "after"]
+    ch["date"] = pd.to_datetime(ch["date"]); ch = ch.sort_values("date")
+    flag = lambda s: isinstance(s, str) and ("ST" in s.upper() or s.upper().startswith("PT") or "退" in s)
+    st = np.zeros(p.close.shape, dtype=bool)
+    covered = np.array([c[:2] in ("00", "30") for c in p.codes])
+    groups = dict(tuple(ch.groupby("code")))
+    for j, c in enumerate(p.codes):
+        if not covered[j]:
+            continue
+        g = groups.get(c)
+        if g is None:
+            st[:, j] = flag(current_names.get(c)); continue
+        pos = p.dates.searchsorted(g["date"].to_numpy())
+        st[:pos[0], j] = flag(g["before"].iloc[0])
+        for k in range(len(g)):
+            end = pos[k + 1] if k + 1 < len(g) else len(p.dates)
+            st[pos[k]:end, j] = flag(g["after"].iloc[k])
+    return st, covered

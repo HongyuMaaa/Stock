@@ -87,3 +87,15 @@ python scripts/basket_signal.py        # target weights for the next open
 
 `quant/basket.py` holds the basket loader (ETF download included) and the strategy blocks: slow trend
 ensemble, volatility target, dip overlay.
+
+## Data-driven (machine-learning) strategy
+
+A walk-forward LightGBM model on 45 technical indicators, with purged training windows and explicit
+leakage checks: see [`reports/ml/REPORT.md`](reports/ml/REPORT.md).
+
+```bash
+python scripts/train_ml.py     # leakage checks, yearly refits 2005-2026, backtests -> reports/ml/
+python scripts/ml_signal.py    # refit on all known data, list today's top-ranked stocks
+```
+
+`quant/ml.py` holds the feature library, the dataset builder and the walk-forward loop.
