@@ -99,3 +99,9 @@ python scripts/ml_signal.py    # refit on all known data, list today's top-ranke
 ```
 
 `quant/ml.py` holds the feature library, the dataset builder and the walk-forward loop.
+
+## Audit of an external strategy ("Argon")
+
+An independent re-implementation and stress test of a third-party strategy description:
+[`reports/argon/REPORT.md`](reports/argon/REPORT.md). Reproduce with `python scripts/audit_argon.py`;
+the rules live in `quant/argon.py`.
