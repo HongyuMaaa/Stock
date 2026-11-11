@@ -91,7 +91,9 @@ def build_table(D: dict, last_fy: int | None = None) -> pd.DataFrame:
     t["div_streak"] = np.where(streak.all(1), len(yrs10), streak.argmin(1))
     t["payout"] = (t["dps_last"] / eps[last_fy]).where(eps[last_fy] > 0)
     t["yield_fy"] = t["dps_last"] / t["price"]
-    t["yield"] = t["yield_quote"].where(t["yield_quote"].notna(), t["yield_fy"])
+    # last fiscal year's total cash distribution (final + interim) over today's price; the quote feed's
+    # figure misses interim payments, so it is only a fallback
+    t["yield"] = t["yield_fy"].where(t["yield_fy"] > 0, t["yield_quote"])
     # ---- industry position (largest by revenue / profit / market value inside the Eastmoney industry)
     g = t.groupby("industry")
     t["rank_rev"] = g["rev"].rank(ascending=False); t["rank_np"] = g["np"].rank(ascending=False)
@@ -133,7 +135,8 @@ def score(t: pd.DataFrame) -> pd.DataFrame:
            (s["worst_np_yoy"] >= -0.30) & cash_ok
     full_fin = fin & (s["years"] >= 10) & (s["loss_years"] == 0) & (s["roe_mean"] >= 9) & (s["roe_min"] >= 6) & (s["worst_np_yoy"] >= -0.30)
     part = (s["years"] >= 8) & (s["loss_years"] == 0) & (s["roe_mean"] >= 8) & (s["worst_np_yoy"] >= -0.50) & (fin | (s["cash_conv5"] >= 0.6))
-    s["c2"] = np.select([full | full_fin, part], [2, 1], 0)
+    now_ok = s["np_ytd_yoy"].fillna(0) >= -0.20            # current-year profit not falling sharply
+    s["c2"] = np.select([(full | full_fin) & now_ok, part | full | full_fin], [2, 1], 0)
 
     sustain = s["payout"].between(0.25, 0.90) & (s["dps_last"] >= 0.8 * s["dps_prev"])
     s["c3"] = np.select([(s["yield"] >= 0.03) & (s["div_streak"] >= 10) & sustain,

@@ -105,3 +105,13 @@ python scripts/ml_signal.py    # refit on all known data, list today's top-ranke
 An independent re-implementation and stress test of a third-party strategy description:
 [`reports/argon/REPORT.md`](reports/argon/REPORT.md). Reproduce with `python scripts/audit_argon.py`;
 the rules live in `quant/argon.py`.
+
+## Fundamental quality screen
+
+Every A-share company scored on six quality criteria (leadership, stability, dividends, valuation,
+governance proxy, growth proxy) and a diversified pool: [`reports/quality/REPORT.md`](reports/quality/REPORT.md).
+
+```bash
+python scripts/download_fundamentals.py              # annual reports 2014+, dividends, balance sheet, pledges
+python scripts/screen_quality.py --refresh-quotes    # scores + pool -> reports/quality/
+```
