@@ -74,7 +74,7 @@ def equity_fig(path, title, subtitle, curves: dict, bench: pd.Series, bench_name
         if ys and y - ys[-1] < 0.085:
             y = ys[-1] + 0.085
         ys.append(y)
-        ax.annotate(f"{n}  {v:,.1f}x", (b.index[-1], 10 ** y), xytext=(6, 0), textcoords="offset points",
+        ax.annotate(f"{n}  {v:,.1f}x" if v >= 1 else f"{n}  {v:.2f}x", (b.index[-1], 10 ** y), xytext=(6, 0), textcoords="offset points",
                     va="center", fontsize=8.5, color=INK2)
         ax.plot([b.index[-1]], [v], marker="o", ms=4, color=col)
     ax.set_title(title, pad=24)
